@@ -877,13 +877,13 @@ select{color:#fff;background:#18121f;border:1px solid var(--line);border-radius:
 (() => {
   // 需要更换密码时，只修改下一行引号里的内容。
   const ACCESS_PASSWORD = "thaiyu7116";
-  const UNLOCK_KEY = "thai5000_simple_access_unlocked_v1";
+  const UNLOCK_KEY = "thai5000_newsite_session_access_v20261023";
   const gate = document.getElementById("simplePasswordGate");
   const form = document.getElementById("spgForm");
   const input = document.getElementById("spgPassword");
   const message = document.getElementById("spgMessage");
   try {
-    if (localStorage.getItem(UNLOCK_KEY) === "yes") {
+    if (sessionStorage.getItem(UNLOCK_KEY) === "yes") {
       gate.remove();
       return;
     }
@@ -891,7 +891,7 @@ select{color:#fff;background:#18121f;border:1px solid var(--line);border-radius:
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     if (input.value === ACCESS_PASSWORD) {
-      try { localStorage.setItem(UNLOCK_KEY, "yes"); } catch (_) {}
+      try { sessionStorage.setItem(UNLOCK_KEY, "yes"); } catch (_) {}
       gate.remove();
     } else {
       message.textContent = "密码不正确，请检查后重试。";
