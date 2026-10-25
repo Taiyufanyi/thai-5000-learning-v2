@@ -159,7 +159,7 @@ select{color:#fff;background:#18121f;border:1px solid var(--line);border-radius:
   <div class="audio-bar">
     <span class="dot" id="audioDot"></span>
 <span id="voiceLabel">泰语发音：正在检测语音引擎…</span>
-    <button class="button" id="testVoice">试听</button><button class="button" id="iosAudioMode" style="display:none" title="苹果手机切换系统语音和在线发音">苹果发音：系统语音</button>
+    <button class="button" id="testVoice">试听</button><button class="button" id="mobileAudioMode" type="button" style="display:none">发音方式：系统</button><button class="button" id="iosAudioMode" style="display:none" title="苹果手机切换系统语音和在线发音">苹果发音：系统语音</button>
     <button class="button" id="reloadVoices">重新检测</button>
     <button class="button" id="cacheCurrentAudio" title="把当前词的在线 MP3 缓存到本机">缓存当前词</button>
     <span class="small" id="cacheStatus">音频缓存：尚未检测</span>
@@ -178,7 +178,7 @@ select{color:#fff;background:#18121f;border:1px solid var(--line);border-radius:
   <section id="words">
     <div id="resumeBar" class="resume-bar"><span id="resumeMessage">还没有标记学习位置。可点击词条的「学到这里」。</span><button class="button" id="resumeButton" type="button" disabled>↪ 继续上次学习</button></div>
     <p class="meta" id="meta"></p>
-    <p class="small" id="exampleMobileNote" style="margin:4px 0 10px;color:#a99abf">例句说明：长句例句仅支持电脑在线发音，手机暂不支持。</p>
+    <p class="small" id="exampleMobileNote" style="margin:4px 0 10px;color:#a99abf">例句提示：长句在部分手机浏览器可能无法完整朗读，电脑通常更稳定。</p>
     <div id="wordList"></div>
     <div class="pagination" id="pagination"></div>
   </section>
@@ -352,7 +352,7 @@ select{color:#fff;background:#18121f;border:1px solid var(--line);border-radius:
       return;
     }
     try {
-      await navigator.serviceWorker.register('./sw.js?v=thaiyu-new-repo-1', {updateViaCache:'none'});
+      await navigator.serviceWorker.register('./sw.js?v=thaiyu-mobile-audio-20261025', {updateViaCache:'none'});
       await navigator.serviceWorker.ready;
       swReady = true;
       $('cacheStatus').textContent='音频缓存：已启用，点读后尝试保存 MP3';
@@ -504,9 +504,36 @@ select{color:#fff;background:#18121f;border:1px solid var(--line);border-radius:
     };
   }
 
+  // 手机安卓可在系统发音与在线音频之间切换，两者均由用户点击直接触发。
+  let nonAppleOnlineMode=false;
+  try { nonAppleOnlineMode=localStorage.getItem('thai5000_android_audio_mode_v1')==='online'; } catch(_) {}
+  const otherAudioMode=$('mobileAudioMode');
+  if(!isAppleMobile){
+    otherAudioMode.style.display='';
+    otherAudioMode.textContent=nonAppleOnlineMode?'发音方式：在线':'发音方式：系统';
+    otherAudioMode.onclick=()=>{
+      nonAppleOnlineMode=!nonAppleOnlineMode;
+      try {localStorage.setItem('thai5000_android_audio_mode_v1',nonAppleOnlineMode?'online':'native')} catch(_) {}
+      otherAudioMode.textContent=nonAppleOnlineMode?'发音方式：在线':'发音方式：系统';
+    };
+  }
   function speak(text){
     // Apple branch is kept from the unified version already tested locally.
     if(isAppleMobile){speakOnApple(text,false);return}
+    // 在线发音在用户点击时直接开始，避免手机拦截延迟播放。
+    if(nonAppleOnlineMode){
+      const clean=String(text||'').trim(); if(!clean)return;
+      const token=++speakToken;
+      finishSpeechTimers();
+      try{window.speechSynthesis?.cancel()}catch(_){}
+      if(fallbackAudio){try{fallbackAudio.pause()}catch(_){} fallbackAudio=null}
+      onlineThaiAudio(clean,token).catch(()=>{
+        if(token!==speakToken)return;
+        $('voiceLabel').textContent='在线音频暂不可用，可切换另一种发音方式';
+        $('audioDot').style.background='#e8a679';
+      });
+      return;
+    }
     const clean=String(text||'').trim();
     if(!clean)return;
     const token=++speakToken;
@@ -565,7 +592,7 @@ select{color:#fff;background:#18121f;border:1px solid var(--line);border-radius:
         synth.speak(utterance);
         speechSafetyTimer=setTimeout(()=>{
           if(token!==speakToken||ended)return;
-          if(!started){currentSpeech=null;try{synth.cancel()}catch(_){};reportFailure('系统语音超时')}
+          if(!started){currentSpeech=null;try{synth.cancel()}catch(_){};reportFailure('系统发音暂不可用，可切换在线音频')}
           else if(synth.paused){try{synth.resume()}catch(_){}}
         },12000);
       }catch(err){currentSpeech=null;reportFailure('系统语音异常')}
@@ -660,6 +687,7 @@ select{color:#fff;background:#18121f;border:1px solid var(--line);border-radius:
   }
   function speakExample(text){
     if(isAppleMobile){speakOnApple(text,true);return}
+    if(nonAppleOnlineMode){speak(text);return}
     const parts=splitThaiExample(text);
     if(!parts.length)return;
     // All sentences still invoke native TTS immediately within the tap handler.
@@ -793,12 +821,12 @@ select{color:#fff;background:#18121f;border:1px solid var(--line);border-radius:
   function updateScore(){ $('quizScore').textContent=`答对 ${correct} / 已答 ${total} · 本轮错题 ${wrong.length}`; }
   function nextQuiz(onlyWrong=false){
     let list=onlyWrong ? all.filter(x=>wrong.includes(x.id) && x.level===level && (!$('quizFav').checked || favorites.has(x.id))) : quizPool();
-    if(!list.length){ quizItem=null; $('quizMeaning').textContent=onlyWrong?'当前级别还没有错题':'无可测试词条，请调整筛选'; $('quizExtra').textContent=''; $('feedback').textContent=''; return; }
+    if(!list.length){ quizItem=null; $('quizMeaning').textContent=onlyWrong?'当前级别还没有错题':'无可测试词条，请调整筛选'; $('quizExtra').textContent=''; $('feedback').textContent=''; updateQuizFavoriteButton(); return; }
     const candidates=list.filter(w=>!quizItem || w.id!==quizItem.id); const pool=(candidates.length?candidates:list);
     quizItem=pool[Math.floor(Math.random()*pool.length)]; quizChecked=false;
     $('quizMeaning').textContent=(quizItem.senses?.[0]?.meaning)||quizItem.meaning||'释义未提供';
     $('quizExtra').textContent=`根据中文意思听音并拼写泰语 · No.${String(quizItem.id).padStart(4,'0')} · L${quizItem.level}`;
-    $('quizInput').value=''; $('feedback').textContent=''; $('quizInput').disabled=false; if(!('ontouchstart' in window) && navigator.maxTouchPoints===0) $('quizInput').focus(); updateScore();
+    $('quizInput').value=''; $('feedback').textContent=''; $('quizInput').disabled=false; if(!('ontouchstart' in window) && navigator.maxTouchPoints===0) $('quizInput').focus(); updateScore(); updateQuizFavoriteButton();
   }
   function check(){
     if(!quizItem || quizChecked) return;
@@ -819,7 +847,20 @@ select{color:#fff;background:#18121f;border:1px solid var(--line);border-radius:
   $('quizAudio').setAttribute('type','button');
   $('quizAudio').onclick=()=>{ if(quizItem) speak(quizItem.thai); };
   $('quizReveal').onclick=()=>{ if(!quizItem) return; if(!quizChecked){ total++; quizChecked=true; if(!wrong.includes(quizItem.id)) wrong.push(quizItem.id); updateScore(); } $('feedback').innerHTML=`答案：<strong lang="th">${escapeHTML(quizItem.thai)}</strong> <span class="small">/${escapeHTML(quizItem.ipa)}/</span>`; };
-  $('quizAddFav').onclick=()=>{ if(!quizItem) return; toggleFav(quizItem.id); renderNotebook(); };
+  function updateQuizFavoriteButton(){
+    const button=$('quizAddFav');
+    button.disabled=!quizItem;
+    button.textContent=quizItem && favorites.has(quizItem.id) ? '★ 已加入生词本（点击移除）' : '☆ 加入生词本';
+    button.setAttribute('aria-pressed',String(!!quizItem && favorites.has(quizItem.id)));
+  }
+  $('quizAddFav').onclick=()=>{
+    if(!quizItem)return;
+    const id=quizItem.id;
+    toggleFav(id);
+    updateQuizFavoriteButton();
+    renderNotebook();
+    toast(favorites.has(id)?'已加入生词本':'已从生词本移除');
+  };
   $('quizInput').onkeydown=e=>{ if(e.key==='Enter'){ if(quizChecked) nextQuiz(); else check(); } };
   $('quizKnown').onchange=()=>nextQuiz();
   $('quizFav').onchange=()=>nextQuiz();
@@ -876,8 +917,8 @@ select{color:#fff;background:#18121f;border:1px solid var(--line);border-radius:
 <script id="simple-password-gate-script">
 (() => {
   // 需要更换密码时，只修改下一行引号里的内容。
-  const ACCESS_PASSWORD = "thaiyu7116";
-  const UNLOCK_KEY = "thai5000_newsite_browser_access_v20261024";
+  const ACCESS_PASSWORD = "Thaiyufanyi";
+  const UNLOCK_KEY = "thai5000_access_Thaiyufanyi_v20261025_" + location.pathname.replace(/\/+/g,"_");
   const gate = document.getElementById("simplePasswordGate");
   const form = document.getElementById("spgForm");
   const input = document.getElementById("spgPassword");
